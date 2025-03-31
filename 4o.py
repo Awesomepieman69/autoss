@@ -10,6 +10,7 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext
 from PIL import Image, ImageTk
 from dotenv import load_dotenv
+import re
 
 # Load environment variables
 load_dotenv()
@@ -115,70 +116,68 @@ def extract_text(image):
     text = pytesseract.image_to_string(preprocessed, lang='eng', config='--psm 6')
     return " ".join(text.split()).strip()
 
-# Query OpenAI for an answer based on the provided text
-def get_openai_answer(text):
+# --- REMOVED parse_questions_from_text function ---
+# (The previous function definition is deleted)
+
+# Query OpenAI for answers from the full text block
+def get_openai_answer(full_text_block):
+    """Sends the full text block from ROI to OpenAI, asking for all answers."""
+    
+    print(f"Sending full text block (length: {len(full_text_block)}) to OpenAI...")
+
     messages = [
-        {"role": "system", "content": "You are an expert tutor that provides accurate, clear, and concise answers to questions. Your answers should be straightforward and focused on providing the correct answer with a brief explanation of why it is correct if you see options just tell me correct one same goes for blank MCQs"},
-        {"role": "user", "content": text}
+        {"role": "system", "content": "You are an expert test-taking assistant. Analyze the following text block which contains one or more questions, potentially with options. For EACH question you identify (e.g., Question 1, Question 2, etc.), determine the single best answer or option based ONLY on the text provided. Format your entire response as a list, with each line containing the question identifier (like \"Question 1\" or \"1.\") followed by a colon and the single correct answer identifier or text (e.g., A, B, 1, 2, True, False, or the answer text itself). Do NOT include explanations or any other text. Example response format:\nQuestion 1: A\nQuestion 2: True\n3.: Option Text\nQuestion 4: B"},
+        {"role": "user", "content": full_text_block}
     ]
-    response = openai.ChatCompletion.create(
-        model="gpt-4o",
-        messages=messages
-    )
-    return response["choices"][0]["message"]["content"].strip()
+    
+    try:
+        # Ensure the openai client library is compatible with this create call if using v1.x+
+        # Might need: response = openai.chat.completions.create(...) for newer library versions
+        response = openai.ChatCompletion.create(
+            model="gpt-4o", 
+            messages=messages,
+            temperature=0 
+        )
+        answer = response["choices"][0]["message"]["content"].strip()
+        print(f"OpenAI response for full block:\n{answer}")
+        return answer
+    except Exception as e:
+        # Add more specific error checking if needed (e.g., rate limits, auth errors)
+        print(f"Error calling OpenAI for full block: {e}")
+        return "OpenAI Error"
 
 # GUI Application
 class ScreenCaptureApp:
+    # ... (keep __init__, create_widgets, select_roi, display_image, toggle_capture)
     def __init__(self, root):
         self.root = root
         self.root.title("Automatic Screen Capture")
         self.root.geometry("800x600")
-        
-        # Variables
         self.monitor_index = 1
         self.roi = None
         self.capturing = False
         self.capture_thread = None
-        
-        # Create GUI elements
         self.create_widgets()
         
     def create_widgets(self):
-        # Top frame for controls
         control_frame = ttk.Frame(self.root)
         control_frame.pack(fill=tk.X, padx=10, pady=10)
-        
-        # Monitor selection
         ttk.Label(control_frame, text="Monitor:").pack(side=tk.LEFT, padx=5)
         self.monitor_var = tk.StringVar(value="1")
         monitor_entry = ttk.Entry(control_frame, textvariable=self.monitor_var, width=5)
         monitor_entry.pack(side=tk.LEFT, padx=5)
-        
-        # ROI selection button
         self.roi_btn = ttk.Button(control_frame, text="Select ROI", command=self.select_roi)
         self.roi_btn.pack(side=tk.LEFT, padx=5)
-        
-        # Start/Stop button
         self.start_stop_btn = ttk.Button(control_frame, text="Start Capture", command=self.toggle_capture)
         self.start_stop_btn.pack(side=tk.LEFT, padx=5)
-        
-        # Middle frame for image display
         image_frame = ttk.Frame(self.root)
         image_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-        
-        # Image display
         self.image_label = ttk.Label(image_frame)
         self.image_label.pack(fill=tk.BOTH, expand=True)
-        
-        # Bottom frame for text output
         text_frame = ttk.Frame(self.root)
         text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # Text output
         self.text_output = scrolledtext.ScrolledText(text_frame, height=10)
         self.text_output.pack(fill=tk.BOTH, expand=True)
-        
-        # Status bar
         self.status_var = tk.StringVar(value="Ready")
         status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(fill=tk.X, side=tk.BOTTOM, padx=10, pady=5)
@@ -190,127 +189,109 @@ class ScreenCaptureApp:
                 monitor_index = 1
         except ValueError:
             monitor_index = 1
-
         self.monitor_index = monitor_index
         self.status_var.set(f"Capturing monitor {monitor_index} for ROI selection...")
         self.root.update()
-
-        # Capture screen
         monitor_image = capture_monitor_macos(monitor_index=self.monitor_index)
-
-        # Select ROI using the separate OpenCV window
-        selected_roi = select_roi_opencv(monitor_image.copy()) # Use a copy for selection
-
+        selected_roi = select_roi_opencv(monitor_image.copy())
         if selected_roi:
-            self.roi = selected_roi # Store the selected ROI
+            self.roi = selected_roi
             x, y, w, h = self.roi
             self.status_var.set(f"ROI selected: x={x}, y={y}, w={w}, h={h}. Press Start Capture.")
-
-            # Draw the selected ROI rectangle on the original monitor image
             highlight_image = monitor_image.copy()
-            cv2.rectangle(highlight_image, (x, y), (x + w, y + h), (0, 255, 0), 2) # Green rectangle
-
-            # Display the full monitor image with the ROI highlighted in the GUI
+            cv2.rectangle(highlight_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
             self.display_image(highlight_image)
         else:
-            self.roi = None # Clear ROI if selection was cancelled
+            self.roi = None
             self.status_var.set("ROI selection cancelled or invalid.")
-            # Optionally clear the image display or show the original monitor image without ROI
-            # self.display_image(monitor_image) # Or clear it
-            # For now, we'll leave the last displayed image
-    
+            
     def display_image(self, cv_image):
-        # Convert OpenCV image to PIL format
         rgb_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
         pil_image = Image.fromarray(rgb_image)
-        
-        # Resize to fit the label while maintaining aspect ratio
         label_width = self.image_label.winfo_width()
         label_height = self.image_label.winfo_height()
-        
         if label_width > 0 and label_height > 0:
-            # Calculate scaling factor to fit the label
             img_width, img_height = pil_image.size
             scale = min(label_width/img_width, label_height/img_height)
             new_width = int(img_width * scale)
             new_height = int(img_height * scale)
-            
-            # Resize the image
             pil_image = pil_image.resize((new_width, new_height), Image.LANCZOS)
-        
-        # Convert to PhotoImage and display
         self.tk_image = ImageTk.PhotoImage(pil_image)
         self.image_label.config(image=self.tk_image)
-    
+        
     def toggle_capture(self):
         if self.capturing:
-            # Stop capturing
             self.capturing = False
             self.start_stop_btn.config(text="Start Capture")
             self.status_var.set("Capture stopped")
             self.roi_btn.config(state=tk.NORMAL)
         else:
-            # Start capturing
             if not self.roi:
                 self.status_var.set("Please select ROI first")
                 return
-            
             self.capturing = True
             self.start_stop_btn.config(text="Stop Capture")
             self.status_var.set("Capturing...")
             self.roi_btn.config(state=tk.DISABLED)
-            
-            # Start capture thread
             self.capture_thread = threading.Thread(target=self.capture_loop)
             self.capture_thread.daemon = True
             self.capture_thread.start()
-    
+            
+    # Updated capture_loop
     def capture_loop(self):
         while self.capturing:
             try:
-                # Capture screen
+                # Capture screen, Extract ROI, Display Image
                 monitor_image = capture_monitor_macos(monitor_index=self.monitor_index)
-                
-                # Extract ROI
                 x, y, w, h = self.roi
                 selected_image = monitor_image[y:y+h, x:x+w]
+                self.root.after(0, lambda img=selected_image.copy(): self.display_image(img))
+
+                # 1. Extract raw text from the ROI
+                print("\n--- Extracting text from ROI ---")
+                raw_extracted_text = extract_text(selected_image) 
+                print(f"Raw OCR Text Length: {len(raw_extracted_text)}")
+                if not raw_extracted_text:
+                     print("OCR returned no text.")
+                     self.root.after(0, lambda: self.status_var.set("No text detected in ROI"))
+                     time.sleep(5)
+                     continue # Skip to next iteration if no text
+                print("--------------------------------")
+
+                # 2. Send the *entire* raw text block to OpenAI
+                print(f"Sending full text block (length {len(raw_extracted_text)}) to OpenAI...")
+                answer_block = get_openai_answer(raw_extracted_text) # Pass the full text
                 
-                # Process image
-                extracted_text = extract_text(selected_image)
-                
-                # Update UI
-                self.root.after(0, lambda img=selected_image: self.display_image(img))
-                
-                if extracted_text:
-                    # Get answer from OpenAI
-                    answer = get_openai_answer(extracted_text)
-                    timestamp = time.strftime("%H:%M:%S")
-                    
-                    # Update text output
-                    self.root.after(0, lambda t=extracted_text, a=answer, ts=timestamp: self.update_text_output(ts, t, a))
-                else:
-                    self.root.after(0, lambda: self.status_var.set("No text detected"))
+                # 3. Update GUI with the multi-answer response block
+                timestamp = time.strftime("%H:%M:%S")
+                self.root.after(0, lambda ts=timestamp, ans=answer_block: self.update_text_output(ts, ans))
                 
                 # Wait for 5 seconds
                 time.sleep(5)
                 
             except Exception as e:
-                self.root.after(0, lambda err=str(e): self.status_var.set(f"Error: {err}"))
+                error_msg = f"Error in capture loop: {type(e).__name__} - {e}"
+                print(error_msg) 
+                import traceback
+                traceback.print_exc() 
+                self.root.after(0, lambda err=error_msg: self.status_var.set(err))
                 time.sleep(5)
     
-    def update_text_output(self, timestamp, text, answer):
-        self.text_output.insert(tk.END, f"[{timestamp}] Detected: {text}\n")
-        self.text_output.insert(tk.END, f"Answer: {answer}\n\n")
+    # Updated update_text_output
+    def update_text_output(self, timestamp, answer_block):
+        # answer_block is now the potentially multi-line string response from OpenAI
+        self.text_output.insert(tk.END, f"--- Processed at {timestamp} ---\n")
+        self.text_output.insert(tk.END, f"{answer_block}\n") # Insert the whole block
+        self.text_output.insert(tk.END, "\n")
         self.text_output.see(tk.END)
         self.status_var.set(f"Processed at {timestamp}")
 
 # Main function
+# ... (keep main)
 def main():
     screens = get_monitors()
     if screens is not None and len(screens) == 0:
         return
-    
-    # Create Tkinter application
     root = tk.Tk()
     app = ScreenCaptureApp(root)
     root.mainloop()
