@@ -43,7 +43,7 @@ This application automatically captures screenshots from your screen at regular 
 
 1. Run the application:
    ```
-   python 4o.py
+   python3 4o.py
    ```
 
 2. Select the monitor number to capture from
