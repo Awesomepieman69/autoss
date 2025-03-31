@@ -1,4 +1,4 @@
-# vmauto - Automatic Screen Capture & Text Analysis
+# autoss - Automatic Screen Capture & Text Analysis
 
 This application automatically captures screenshots from your screen at regular intervals, extracts text using OCR, and analyzes the text using OpenAI's GPT-4o model.
 
