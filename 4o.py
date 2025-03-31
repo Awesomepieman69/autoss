@@ -190,26 +190,34 @@ class ScreenCaptureApp:
                 monitor_index = 1
         except ValueError:
             monitor_index = 1
-            
+
         self.monitor_index = monitor_index
         self.status_var.set(f"Capturing monitor {monitor_index} for ROI selection...")
         self.root.update()
-        
+
         # Capture screen
         monitor_image = capture_monitor_macos(monitor_index=self.monitor_index)
-        
-        # Select ROI
-        self.roi = select_roi_opencv(monitor_image)
-        
-        if self.roi:
+
+        # Select ROI using the separate OpenCV window
+        selected_roi = select_roi_opencv(monitor_image.copy()) # Use a copy for selection
+
+        if selected_roi:
+            self.roi = selected_roi # Store the selected ROI
             x, y, w, h = self.roi
-            self.status_var.set(f"ROI selected: x={x}, y={y}, w={w}, h={h}")
-            
-            # Show selected ROI
-            roi_image = monitor_image[y:y+h, x:x+w]
-            self.display_image(roi_image)
+            self.status_var.set(f"ROI selected: x={x}, y={y}, w={w}, h={h}. Press Start Capture.")
+
+            # Draw the selected ROI rectangle on the original monitor image
+            highlight_image = monitor_image.copy()
+            cv2.rectangle(highlight_image, (x, y), (x + w, y + h), (0, 255, 0), 2) # Green rectangle
+
+            # Display the full monitor image with the ROI highlighted in the GUI
+            self.display_image(highlight_image)
         else:
+            self.roi = None # Clear ROI if selection was cancelled
             self.status_var.set("ROI selection cancelled or invalid.")
+            # Optionally clear the image display or show the original monitor image without ROI
+            # self.display_image(monitor_image) # Or clear it
+            # For now, we'll leave the last displayed image
     
     def display_image(self, cv_image):
         # Convert OpenCV image to PIL format
