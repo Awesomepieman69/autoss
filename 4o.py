@@ -118,7 +118,7 @@ def extract_text(image):
 # Query OpenAI for an answer based on the provided text
 def get_openai_answer(text):
     messages = [
-        {"role": "system", "content": "You are a helpful assistant. Answer the following text. Provide only the answer with no additional explanation."},
+        {"role": "system", "content": "You are an expert tutor that provides accurate, clear, and concise answers to questions. Your answers should be straightforward and focused on providing the correct answer with a brief explanation of why it is correct if you see options just tell me correct one same goes for blank MCQs"},
         {"role": "user", "content": text}
     ]
     response = openai.ChatCompletion.create(
